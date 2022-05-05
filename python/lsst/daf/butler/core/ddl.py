@@ -363,6 +363,10 @@ class FieldSpec:
         self.doc = stripIfNotNone(config.get("doc", None))
         return self
 
+    @classmethod
+    def for_region(cls, name: str = "region", nullable: bool = True, nbytes: int = 2048) -> FieldSpec:
+        return cls(name, nullable=nullable, dtype=Base64Region, nbytes=nbytes)
+
     def isStringType(self) -> bool:
         """Indicate that this is a sqlalchemy.String field spec.
 
