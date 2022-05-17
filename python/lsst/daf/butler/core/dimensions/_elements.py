@@ -332,7 +332,7 @@ class DimensionElement(TopologicalRelationshipEndpoint):
 
     @property
     @abstractmethod
-    def populated_by(self) -> Optional[Dimension]:
+    def populated_by(self) -> Optional[Dimension]:  # noqa: D401
         """The dimension that this element's records are always inserted,
         exported, and imported alongside.
 
