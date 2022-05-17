@@ -25,6 +25,7 @@ __all__ = ["DimensionUniverse"]
 
 import math
 import pickle
+from collections import defaultdict
 from typing import (
     TYPE_CHECKING,
     ClassVar,
@@ -178,6 +179,11 @@ class DimensionUniverse:
         # Same for dimension to index, sorted topologically across required
         # and implied.  This is used for encode/decode.
         self._dimensionIndices = {name: i for i, name in enumerate(self._dimensions.names)}
+
+        self._populates = defaultdict(NamedValueSet)
+        for element in self._elements:
+            if element.populated_by is not None:
+                self._populates[element.populated_by.name].add(element)
 
         return self
 
@@ -430,6 +436,12 @@ class DimensionUniverse:
         """
         return math.ceil(len(self._dimensions) / 8)
 
+    def get_elements_populated_by(self, dimension: Dimension) -> NamedValueAbstractSet[DimensionElement]:
+        """Return the set of `DimensionElement` objects whose
+        `~DimensionElement.populated_by` atttribute is the given dimension.
+        """
+        return self._populates[dimension.name]
+
     @classmethod
     def _unpickle(cls, version: int, namespace: Optional[str] = None) -> DimensionUniverse:
         """Return an unpickled dimension universe.
@@ -488,6 +500,8 @@ class DimensionUniverse:
     _elementIndices: Dict[str, int]
 
     _packers: Dict[str, DimensionPackerFactory]
+
+    _populates: defaultdict[str, NamedValueSet]
 
     _version: int
 

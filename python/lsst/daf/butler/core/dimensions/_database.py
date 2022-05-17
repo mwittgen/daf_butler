@@ -376,10 +376,12 @@ class DatabaseDimensionCombination(DimensionCombination, DatabaseDimensionElemen
         implied: NamedValueAbstractSet[Dimension],
         metadata: NamedValueAbstractSet[ddl.FieldSpec],
         alwaysJoin: bool,
+        populated_by: Optional[Dimension],
     ):
         super().__init__(name, storage=storage, implied=implied, metadata=metadata)
         self._required = required
         self._alwaysJoin = alwaysJoin
+        self._populated_by = populated_by
 
     @property
     def required(self) -> NamedValueAbstractSet[Dimension]:
@@ -390,6 +392,11 @@ class DatabaseDimensionCombination(DimensionCombination, DatabaseDimensionElemen
     def alwaysJoin(self) -> bool:
         # Docstring inherited from DimensionElement.
         return self._alwaysJoin
+
+    @property
+    def populated_by(self) -> Optional[Dimension]:
+        # Docstring inherited.
+        return self._populated_by
 
 
 class DatabaseDimensionElementConstructionVisitor(DimensionConstructionVisitor):
@@ -427,6 +434,9 @@ class DatabaseDimensionElementConstructionVisitor(DimensionConstructionVisitor):
         relationship between those dimensions that must always be satisfied.
         Should only be provided when a `DimensionCombination` is being
         constructed.
+    populated_by: `Dimension`, optional
+        The dimension that this element's records are always inserted,
+        exported, and imported alongside.
     """
 
     def __init__(
@@ -438,6 +448,7 @@ class DatabaseDimensionElementConstructionVisitor(DimensionConstructionVisitor):
         metadata: Iterable[ddl.FieldSpec] = (),
         uniqueKeys: Iterable[ddl.FieldSpec] = (),
         alwaysJoin: bool = False,
+        populated_by: Optional[str] = None,
     ):
         super().__init__(name)
         self._storage = storage
@@ -446,6 +457,7 @@ class DatabaseDimensionElementConstructionVisitor(DimensionConstructionVisitor):
         self._metadata = NamedValueSet(metadata).freeze()
         self._uniqueKeys = NamedValueSet(uniqueKeys).freeze()
         self._alwaysJoin = alwaysJoin
+        self._populated_by = populated_by
 
     def hasDependenciesIn(self, others: AbstractSet[str]) -> bool:
         # Docstring inherited from DimensionConstructionVisitor.
@@ -489,5 +501,8 @@ class DatabaseDimensionElementConstructionVisitor(DimensionConstructionVisitor):
                 implied=implied.freeze(),
                 metadata=self._metadata,
                 alwaysJoin=self._alwaysJoin,
+                populated_by=(
+                    builder.dimensions[self._populated_by] if self._populated_by is not None else None
+                ),
             )
             builder.elements.add(combination)
