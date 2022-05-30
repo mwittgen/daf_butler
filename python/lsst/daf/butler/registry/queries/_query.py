@@ -30,7 +30,6 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, ContextManager, Dict, Iterable, Iterator, Mapping, Optional, Tuple
 
 import sqlalchemy
-from lsst.sphgeom import Region
 
 from ...core import (
     DataCoordinate,
@@ -42,6 +41,7 @@ from ...core import (
     DimensionRecord,
     DimensionUniverse,
     SimpleQuery,
+    SpatialConstraint,
     addDimensionForeignKey,
     ddl,
 )
@@ -78,8 +78,8 @@ class Query(ABC):
     ----------
     graph : `DimensionGraph`
         Object describing the dimensions included in the query.
-    whereRegion : `lsst.sphgeom.Region`, optional
-        Region that all region columns in all returned rows must overlap.
+    spatial_constraint : `SpatialConstraint`, optional
+        Constraint that all region columns in all returned rows must overlap.
     managers : `RegistryManagers`
         A struct containing the registry manager instances used by the query
         system.
@@ -100,12 +100,12 @@ class Query(ABC):
         self,
         *,
         graph: DimensionGraph,
-        whereRegion: Optional[Region],
+        spatial_constraint: Optional[SpatialConstraint],
         managers: RegistryManagers,
         doomed_by: Iterable[str] = (),
     ):
         self.graph = graph
-        self.whereRegion = whereRegion
+        self.spatial_constraint = spatial_constraint
         self.managers = managers
         self._doomed_by = tuple(doomed_by)
         self._filtered_by_join: Optional[int] = None
@@ -368,9 +368,7 @@ class Query(ABC):
         """
         raise NotImplementedError()
 
-    def rows(
-        self, db: Database
-    ) -> Iterator[Optional[sqlalchemy.engine.RowProxy]]:
+    def rows(self, db: Database) -> Iterator[Optional[sqlalchemy.engine.RowProxy]]:
         """Execute the query and yield result rows, applying `predicate`.
 
         Parameters
@@ -390,7 +388,9 @@ class Query(ABC):
         self._filtered_by_join = 0
         for row in db.query(self.sql):
             rowRegions = [row._mapping[self.getRegionColumn(element.name)] for element in self.spatial]
-            if self.whereRegion and any(r.isDisjointFrom(self.whereRegion) for r in rowRegions):
+            if self.spatial_constraint and any(
+                r.isDisjointFrom(self.spatial_constraint.region) for r in rowRegions
+            ):
                 self._filtered_by_where += 1
                 continue
             if not not any(a.isDisjointFrom(b) for a, b in itertools.combinations(rowRegions, 2)):
@@ -665,9 +665,9 @@ class Query(ABC):
     created from its result rows (`DimensionGraph`).
     """
 
-    whereRegion: Optional[Region]
-    """A spatial region that all regions in all rows returned by this query
-    must overlap (`lsst.sphgeom.Region` or `None`).
+    whereRegion: Optional[SpatialConstraint]
+    """A spatial constraint that all regions in all rows returned by this query
+    must overlap (`SpatialConstraint` or `None`).
     """
 
     managers: RegistryManagers
@@ -714,8 +714,8 @@ class DirectQuery(Query):
         database.
     graph : `DimensionGraph`
         Object describing the dimensions included in the query.
-    whereRegion : `lsst.sphgeom.Region`, optional
-        Region that all region columns in all returned rows must overlap.
+    spatial_constraint : `SpatialConstraint`, optional
+        Constraint that all region columns in all returned rows must overlap.
     managers : `RegistryManagers`
         Struct containing the `Registry` manager helper objects, to be
         forwarded to the `Query` constructor.
@@ -732,13 +732,18 @@ class DirectQuery(Query):
         columns: QueryColumns,
         uniqueness: DirectQueryUniqueness,
         graph: DimensionGraph,
-        whereRegion: Optional[Region],
+        spatial_constraint: Optional[SpatialConstraint],
         managers: RegistryManagers,
         order_by_columns: Iterable[OrderByColumn] = (),
         limit: Optional[Tuple[int, Optional[int]]] = None,
         doomed_by: Iterable[str] = (),
     ):
-        super().__init__(graph=graph, whereRegion=whereRegion, managers=managers, doomed_by=doomed_by)
+        super().__init__(
+            graph=graph,
+            spatial_constraint=spatial_constraint,
+            managers=managers,
+            doomed_by=doomed_by,
+        )
         assert not simpleQuery.columns, "Columns should always be set on a copy in .sql"
         assert not columns.isEmpty(), "EmptyQuery must be used when a query would have no columns."
         self._simpleQuery = simpleQuery
@@ -878,7 +883,7 @@ class DirectQuery(Query):
                 datasetType=self.datasetType,
                 isUnique=self.isUnique(),
                 graph=self.graph,
-                whereRegion=self.whereRegion,
+                spatial_constraint=self.spatial_constraint,
                 managers=self.managers,
                 doomed_by=self._doomed_by,
             )
@@ -898,7 +903,7 @@ class DirectQuery(Query):
             columns=columns,
             uniqueness=DirectQueryUniqueness.NEEDS_DISTINCT if unique else DirectQueryUniqueness.NOT_UNIQUE,
             graph=graph,
-            whereRegion=self.whereRegion if not unique else None,
+            spatial_constraint=self.spatial_constraint if not unique else None,
             managers=self.managers,
             doomed_by=self._doomed_by,
         )
@@ -908,7 +913,7 @@ class DirectQuery(Query):
         from ._builder import QueryBuilder
 
         if summary is None:
-            summary = QuerySummary(self.graph, whereRegion=self.whereRegion)
+            summary = QuerySummary(self.graph, spatial_constraint=self.spatial_constraint)
         if not summary.requested.issubset(self.graph):
             raise NotImplementedError(
                 f"Query.makeBuilder does not yet support augmenting dimensions "
@@ -937,16 +942,16 @@ class MaterializedQuery(Query):
         Spatial dimension elements whose regions must overlap for each valid
         result row (which may reject some rows that are in the table).
     datasetType : `DatasetType`
-        The `DatasetType` of datasets returned by this query, or `None`
-        if there are no dataset results
+        The `DatasetType` of datasets returned by this query, or `None` if
+        there are no dataset results
     isUnique : `bool`
-        If `True`, the table's rows are unique, and there is no need to
-        add ``SELECT DISTINCT`` to guarantee this in results.
+        If `True`, the table's rows are unique, and there is no need to add
+        ``SELECT DISTINCT`` to guarantee this in results.
     graph : `DimensionGraph`
         Dimensions included in the columns of this table.
-    whereRegion : `Region` or `None`
-        A spatial region all result-row regions must overlap to be valid (which
-        may reject some rows that are in the table).
+    spatial_constraint : `SpatialConstraint` or `None`
+        A spatial constraint all result-row regions must overlap to be valid
+        (which may reject some rows that are in the table).
     managers : `RegistryManagers`
         A struct containing `Registry` manager helper objects, forwarded to
         the `Query` constructor.
@@ -964,11 +969,16 @@ class MaterializedQuery(Query):
         datasetType: Optional[DatasetType],
         isUnique: bool,
         graph: DimensionGraph,
-        whereRegion: Optional[Region],
+        spatial_constraint: Optional[SpatialConstraint],
         managers: RegistryManagers,
         doomed_by: Iterable[str] = (),
     ):
-        super().__init__(graph=graph, whereRegion=whereRegion, managers=managers, doomed_by=doomed_by)
+        super().__init__(
+            graph=graph,
+            spatial_constraint=spatial_constraint,
+            managers=managers,
+            doomed_by=doomed_by,
+        )
         self._table = table
         self._spatial = tuple(spatial)
         self._datasetType = datasetType
@@ -1032,7 +1042,7 @@ class MaterializedQuery(Query):
             columns=columns,
             uniqueness=DirectQueryUniqueness.NEEDS_DISTINCT if unique else DirectQueryUniqueness.NOT_UNIQUE,
             graph=graph,
-            whereRegion=self.whereRegion if not unique else None,
+            spatial_constraint=self.spatial_constraint if not unique else None,
             managers=self.managers,
             doomed_by=self._doomed_by,
         )
@@ -1042,7 +1052,7 @@ class MaterializedQuery(Query):
         from ._builder import QueryBuilder
 
         if summary is None:
-            summary = QuerySummary(self.graph, whereRegion=self.whereRegion)
+            summary = QuerySummary(self.graph, spatial_constraint=self.spatial_constraint)
         if not summary.requested.issubset(self.graph):
             raise NotImplementedError(
                 f"Query.makeBuilder does not yet support augmenting dimensions "
@@ -1077,7 +1087,12 @@ class EmptyQuery(Query):
         managers: RegistryManagers,
         doomed_by: Iterable[str] = (),
     ):
-        super().__init__(graph=universe.empty, whereRegion=None, managers=managers, doomed_by=doomed_by)
+        super().__init__(
+            graph=universe.empty,
+            spatial_constraint=None,
+            managers=managers,
+            doomed_by=doomed_by,
+        )
 
     def isUnique(self) -> bool:
         # Docstring inherited from Query.
