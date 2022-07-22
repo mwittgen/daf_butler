@@ -27,7 +27,7 @@ __all__ = (
 
 import enum
 import warnings
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -57,7 +57,7 @@ except ImportError:
 from lsst.utils.classes import cached_getter
 
 from . import ddl
-from ._topology import TopologicalExtentDatabaseRepresentation, TopologicalSpace
+from ._topology import TopologicalSpace
 from .json import from_json_generic, to_json_generic
 from .time_utils import TimeConverter
 
@@ -596,7 +596,7 @@ yaml.SafeLoader.add_constructor(Timespan.yaml_tag, Timespan.from_yaml)
 _S = TypeVar("_S", bound="TimespanDatabaseRepresentation")
 
 
-class TimespanDatabaseRepresentation(TopologicalExtentDatabaseRepresentation[Timespan]):
+class TimespanDatabaseRepresentation(ABC):
     """Representation of a time span within a database engine.
 
     Provides an interface that encapsulates how timespans are represented in a
@@ -629,6 +629,59 @@ class TimespanDatabaseRepresentation(TopologicalExtentDatabaseRepresentation[Tim
 
     @classmethod
     @abstractmethod
+    def makeFieldSpecs(
+        cls, nullable: bool, name: Optional[str] = None, **kwargs: Any
+    ) -> tuple[ddl.FieldSpec, ...]:
+        """Make objects that reflect the fields that must be added to table.
+
+        Makes one or more `ddl.FieldSpec` objects that reflect the fields
+        that must be added to a table for this representation.
+
+        Parameters
+        ----------
+        nullable : `bool`
+            If `True`, the timespan is permitted to be logically ``NULL``
+            (mapped to `None` in Python), though the corresponding value(s) in
+            the database are implementation-defined.  Nullable timespan fields
+            default to NULL, while others default to (-∞, ∞).
+        name : `str`, optional
+            Name for the logical column; a part of the name for multi-column
+            representations.  Defaults to ``cls.NAME``.
+        **kwargs
+            Keyword arguments are forwarded to the `ddl.FieldSpec` constructor
+            for all fields; implementations only provide the ``name``,
+            ``dtype``, and ``default`` arguments themselves.
+
+        Returns
+        -------
+        specs : `tuple` [ `ddl.FieldSpec` ]
+            Field specification objects; length of the tuple is
+            subclass-dependent, but is guaranteed to match the length of the
+            return values of `getFieldNames` and `update`.
+        """
+        raise NotImplementedError()
+
+    @classmethod
+    @abstractmethod
+    def getFieldNames(cls, name: Optional[str] = None) -> tuple[str, ...]:
+        """Return the actual field names used by this representation.
+
+        Parameters
+        ----------
+        name : `str`, optional
+            Name for the logical column; a part of the name for multi-column
+            representations.  Defaults to ``cls.NAME``.
+
+        Returns
+        -------
+        names : `tuple` [ `str` ]
+            Field name(s).  Guaranteed to be the same as the names of the field
+            specifications returned by `makeFieldSpecs`.
+        """
+        raise NotImplementedError()
+
+    @classmethod
+    @abstractmethod
     def fromLiteral(cls: Type[_S], timespan: Optional[Timespan]) -> _S:
         """Construct a database timespan from a literal `Timespan` instance.
 
@@ -643,6 +696,136 @@ class TimespanDatabaseRepresentation(TopologicalExtentDatabaseRepresentation[Tim
         tsRepr : `TimespanDatabaseRepresentation`
             A timespan expression object backed by `sqlalchemy.sql.literal`
             column expressions.
+        """
+        raise NotImplementedError()
+
+    @classmethod
+    @abstractmethod
+    def from_columns(cls: type[_S], columns: sqlalchemy.sql.ColumnCollection, name: str | None = None) -> _S:
+        """Construct representation of a column in the table or subquery.
+
+        Constructs an instance that represents a logical column (which may
+        actually be backed by multiple columns) in the given table or subquery.
+
+        Parameters
+        ----------
+        columns : `sqlalchemy.sql.ColumnCollections`
+            SQLAlchemy container for raw columns.
+        name : `str`, optional
+            Name for the logical column; a part of the name for multi-column
+            representations.  Defaults to ``cls.NAME``.
+
+        Returns
+        -------
+        representation : `TopologicalExtentDatabaseRepresentation`
+            Object representing a logical column.
+        """
+        raise NotImplementedError()
+
+    @classmethod
+    @abstractmethod
+    def update(
+        cls, timespan: Timespan | None, name: str | None = None, result: Dict[str, Any] | None = None
+    ) -> Dict[str, Any]:
+        """Add a region to a dictionary.
+
+        This region represents a database row in this representation.
+
+        Parameters
+        ----------
+        timespan
+            A timespan literal, or `None` for ``NULL``.
+        name : `str`, optional
+            Name for the logical column; a part of the name for multi-column
+            representations.  Defaults to ``cls.NAME``.
+        result : `dict` [ `str`, `Any` ], optional
+            A dictionary representing a database row that fields should be
+            added to, or `None` to create and return a new one.
+
+        Returns
+        -------
+        result : `dict` [ `str`, `Any` ]
+            A dictionary containing this representation of a timespan.  Exactly
+            the `dict` passed as ``result`` if that is not `None`.
+        """
+        raise NotImplementedError()
+
+    @classmethod
+    @abstractmethod
+    def extract(cls, mapping: Mapping[str, Any], name: str | None = None) -> Timespan | None:
+        """Extract a timespan from a dictionary.
+
+        This timespan represents a database row in this representation.
+
+        Parameters
+        ----------
+        mapping : `Mapping` [ `str`, `Any` ]
+            A dictionary representing a database row containing a `Timespan`
+            in this representation.  Should have key(s) equal to the return
+            value of `getFieldNames`.
+        name : `str`, optional
+            Name for the logical column; a part of the name for multi-column
+            representations.  Defaults to ``cls.NAME``.
+
+        Returns
+        -------
+        timespan
+            Python representation of the timespan.
+        """
+        raise NotImplementedError()
+
+    @classmethod
+    def hasExclusionConstraint(cls) -> bool:
+        """Return `True` if this representation supports exclusion constraints.
+
+        Returns
+        -------
+        supported : `bool`
+            If `True`, defining a constraint via `ddl.TableSpec.exclusion` that
+            includes the fields of this representation is allowed.
+        """
+        return False
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Return base logical name for the topological extent (`str`).
+
+        If the representation uses only one actual column, this should be the
+        full name of the column.  In other cases it is an unspecified subset of
+        the column names.
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def isNull(self) -> sqlalchemy.sql.ColumnElement:
+        """Return expression that tests where region is ``NULL``.
+
+        Returns a SQLAlchemy expression that tests whether this region is
+        logically ``NULL``.
+
+        Returns
+        -------
+        isnull : `sqlalchemy.sql.ColumnElement`
+            A boolean SQLAlchemy expression object.
+        """
+        raise NotImplementedError()
+
+    @abstractmethod
+    def flatten(self, name: str | None = None) -> tuple[sqlalchemy.sql.ColumnElement, ...]:
+        """Return the actual column(s) that comprise this logical column.
+
+        Parameters
+        ----------
+        name : `str`, optional
+            If provided, a name for the logical column that should be used to
+            label the columns.  If not provided, the columns' native names will
+            be used.
+
+        Returns
+        -------
+        columns : `tuple` [ `sqlalchemy.sql.ColumnElement` ]
+            The true column or columns that back this object.
         """
         raise NotImplementedError()
 
