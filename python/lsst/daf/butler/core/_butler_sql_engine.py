@@ -21,7 +21,7 @@
 
 from __future__ import annotations
 
-__all__ = ("ColumnTypeInfo",)
+__all__ = ("ButlerSqlEngine",)
 
 import dataclasses
 
@@ -31,7 +31,7 @@ from .timespan import TimespanDatabaseRepresentation
 
 
 @dataclasses.dataclass(frozen=True, eq=False)
-class ColumnTypeInfo:
+class ButlerSqlEngine:
     """A struct that aggregates information about column types that can differ
     across data repositories due to `Registry` and dimension configuration.
     """
