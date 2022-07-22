@@ -25,6 +25,7 @@ __all__ = ("SqlQueryBackend",)
 from typing import TYPE_CHECKING
 
 from ._query_backend import QueryBackend
+from ._sql_query_context import SqlQueryContext
 
 if TYPE_CHECKING:
     from ...core import DimensionUniverse
@@ -55,6 +56,10 @@ class SqlQueryBackend(QueryBackend):
     def managers(self) -> RegistryManagerInstances:
         # Docstring inherited.
         return self._managers
+
+    def context(self) -> SqlQueryContext:
+        # Docstring inherited.
+        return SqlQueryContext(self._db, self._managers.sql_engine)
 
     @property
     def universe(self) -> DimensionUniverse:
