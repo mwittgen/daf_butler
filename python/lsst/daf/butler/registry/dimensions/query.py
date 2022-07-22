@@ -27,6 +27,7 @@ from typing import Any, Iterable, Mapping, Optional
 import sqlalchemy
 
 from ...core import (
+    ButlerSqlEngine,
     DatabaseDimension,
     DatabaseDimensionElement,
     DataCoordinateIterable,
@@ -97,6 +98,7 @@ class QueryDimensionRecordStorage(DatabaseDimensionRecordStorage):
         context: Optional[StaticTablesContext] = None,
         config: Mapping[str, Any],
         governors: NamedKeyMapping[GovernorDimension, GovernorDimensionRecordStorage],
+        sql_engine: ButlerSqlEngine,
     ) -> DatabaseDimensionRecordStorage:
         # Docstring inherited from DatabaseDimensionRecordStorage.
         viewOf = config["view_of"]

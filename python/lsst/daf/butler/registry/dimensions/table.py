@@ -32,6 +32,7 @@ import sqlalchemy
 from lsst.utils.sets.ellipsis import Ellipsis, EllipsisType
 
 from ...core import (
+    ButlerSqlEngine,
     DatabaseDimensionElement,
     DataCoordinate,
     DataCoordinateIterable,
@@ -117,6 +118,7 @@ class TableDimensionRecordStorage(DatabaseDimensionRecordStorage):
         context: Optional[StaticTablesContext] = None,
         config: Mapping[str, Any],
         governors: NamedKeyMapping[GovernorDimension, GovernorDimensionRecordStorage],
+        sql_engine: ButlerSqlEngine,
     ) -> DatabaseDimensionRecordStorage:
         # Docstring inherited from DatabaseDimensionRecordStorage.
         spec = element.RecordClass.fields.makeTableSpec(TimespanReprClass=db.getTimespanRepresentation())

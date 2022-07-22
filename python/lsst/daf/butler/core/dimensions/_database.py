@@ -47,6 +47,7 @@ if TYPE_CHECKING:
         GovernorDimensionRecordStorage,
         StaticTablesContext,
     )
+    from .._butler_sql_engine import ButlerSqlEngine
     from ._governor import GovernorDimension
 
 
@@ -235,6 +236,7 @@ class DatabaseDimensionElement(DimensionElement):
         *,
         context: Optional[StaticTablesContext] = None,
         governors: NamedKeyMapping[GovernorDimension, GovernorDimensionRecordStorage],
+        sql_engine: ButlerSqlEngine,
     ) -> DatabaseDimensionRecordStorage:
         """Make the dimension record storage instance for this database.
 
@@ -251,6 +253,9 @@ class DatabaseDimensionElement(DimensionElement):
         governors : `NamedKeyMapping`
             Mapping from `GovernorDimension` to the record storage backend for
             that dimension, containing all governor dimensions.
+        sql_engine : `ButlerSqlEngine`
+            Information about column types that can differ between data
+            repositories and registry instances.
 
         Returns
         -------
@@ -261,7 +266,9 @@ class DatabaseDimensionElement(DimensionElement):
 
         cls = doImportType(self._storage["cls"])
         assert issubclass(cls, DatabaseDimensionRecordStorage)
-        return cls.initialize(db, self, context=context, config=self._storage, governors=governors)
+        return cls.initialize(
+            db, self, context=context, config=self._storage, governors=governors, sql_engine=sql_engine
+        )
 
 
 class DatabaseDimension(Dimension, DatabaseDimensionElement):

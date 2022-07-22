@@ -34,7 +34,7 @@ from typing import Any, Dict, Generic, Type, TypeVar
 import sqlalchemy
 from lsst.utils import doImportType
 
-from ..core import Config, DimensionConfig, DimensionUniverse
+from ..core import ButlerSqlEngine, Config, DimensionConfig, DimensionUniverse, ddl
 from ._config import RegistryConfig
 from .interfaces import (
     ButlerAttributeManager,
@@ -215,6 +215,7 @@ class RegistryManagerTypes(
         return instances
 
 
+@dataclasses.dataclass(frozen=True, eq=False)
 class RegistryManagerInstances(
     _GenericRegistryManagers[
         ButlerAttributeManager,
@@ -227,6 +228,11 @@ class RegistryManagerInstances(
 ):
     """A struct used to pass around the manager instances that back a
     `Registry`.
+    """
+
+    sql_engine: ButlerSqlEngine
+    """Information about column types that can differ between data repositories
+    and registry instances, including the dimension universe.
     """
 
     @classmethod
@@ -259,9 +265,20 @@ class RegistryManagerInstances(
         instances : `RegistryManagerInstances`
             Struct containing manager instances.
         """
+        dummy_table = ddl.TableSpec(fields=())
         kwargs: Dict[str, Any] = {}
+        kwargs["sql_engine"] = ButlerSqlEngine(
+            database.getTimespanRepresentation(),
+            universe,
+            dataset_id_spec=types.datasets.addDatasetForeignKey(
+                dummy_table,
+                primaryKey=False,
+                nullable=False,
+            ),
+            run_key_spec=types.collections.addRunForeignKey(dummy_table, primaryKey=False, nullable=False),
+        )
         kwargs["attributes"] = types.attributes.initialize(database, context)
-        kwargs["dimensions"] = types.dimensions.initialize(database, context, universe=universe)
+        kwargs["dimensions"] = types.dimensions.initialize(database, context, sql_engine=kwargs["sql_engine"])
         kwargs["collections"] = types.collections.initialize(
             database,
             context,
@@ -272,6 +289,7 @@ class RegistryManagerInstances(
             context,
             collections=kwargs["collections"],
             dimensions=kwargs["dimensions"],
+            sql_engine=kwargs["sql_engine"],
         )
         kwargs["opaque"] = types.opaque.initialize(database, context)
         kwargs["datastores"] = types.datastores.initialize(
@@ -298,7 +316,7 @@ class RegistryManagerInstances(
             # deepcopy stuff (?!) in order to find dataclasses recursively, and
             # that doesn't work on some manager objects that definitely aren't
             # supposed to be deep-copied anyway.
-            {f.name: getattr(self, f.name) for f in dataclasses.fields(self)},
+            {f.name: getattr(self, f.name) for f in dataclasses.fields(self) if f.name != "sql_engine"},
         )
 
     def refresh(self) -> None:
