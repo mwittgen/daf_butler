@@ -6,6 +6,7 @@ from . import progress  # most symbols are only used by handler implementors
 from . import ddl, time_utils
 from ._butler_sql_engine import *
 from ._butlerUri import *
+from ._column_tags import *
 from ._spatial_constraint import *
 from ._topology import *
 from .composites import *
